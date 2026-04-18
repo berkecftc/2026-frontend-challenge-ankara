@@ -14,10 +14,6 @@ export function buildCacheKey(
   return `${CACHE_PREFIX}${formId}:${limit ?? ""}:${offset ?? ""}`;
 }
 
-/**
- * Anahtara karşılık gelen önbellek girdisini döndürür.
- * Girdi yoksa veya süresi dolmuşsa `null` döner ve stale girdi temizlenir.
- */
 export function readCache(key: string): NormalizedSubmission[] | null {
   if (typeof localStorage === "undefined") return null;
   try {

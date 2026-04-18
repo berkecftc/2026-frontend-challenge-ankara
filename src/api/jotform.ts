@@ -1,17 +1,6 @@
-/**
- * Jotform REST API istemcisi.
- *
- * Bu dosya yalnızca ağ iletişiminden sorumludur.
- * Önbellek mantığı `./cache.ts` modülündedir.
- * Form kayıt defteri `./forms.ts` dosyasındadır.
- */
-
 import { JOTFORM_BASE_URL, DEFAULT_CACHE_TTL_MS } from "../constants";
 import { buildCacheKey, readCache, writeCache, clearCache } from "./cache";
 
-// ---------------------------------------------------------------------------
-// Tip tanımları (Public)
-// ---------------------------------------------------------------------------
 
 export interface FormConfig {
   formId: string;
@@ -22,11 +11,8 @@ export interface FetchOptions {
   limit?: number;
   offset?: number;
   signal?: AbortSignal;
-  /** True ise localStorage önbelleğini kullan. */
   cache?: boolean;
-  /** Önbellek ömrü (ms). Varsayılan: `DEFAULT_CACHE_TTL_MS` */
   cacheTtlMs?: number;
-  /** True ise önbelleği atlayarak her zaman ağdan çek. */
   force?: boolean;
 }
 
@@ -42,10 +28,6 @@ export interface NormalizedSubmission {
 export type FormResult =
   | { formId: string; status: "success"; data: NormalizedSubmission[]; error: null }
   | { formId: string; status: "failure"; data: null; error: string };
-
-// ---------------------------------------------------------------------------
-// Tip tanımları (Internal — Jotform API şeması)
-// ---------------------------------------------------------------------------
 
 interface JotformEnvelope<T> {
   responseCode: number;
@@ -72,10 +54,6 @@ interface RawSubmission {
   answers: Record<string, RawAnswer>;
 }
 
-// ---------------------------------------------------------------------------
-// Hata sınıfı
-// ---------------------------------------------------------------------------
-
 export class JotformError extends Error {
   constructor(
     message: string,
@@ -87,17 +65,7 @@ export class JotformError extends Error {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Public API — fetchFormSubmissions
-// ---------------------------------------------------------------------------
 
-/**
- * Belirtilen form için Jotform gönderilerini çeker ve normalleştirir.
- *
- * - `options.cache = true` ise önce localStorage kontrol edilir.
- * - `options.force = true` ise önbellek atlanır (API kotası harcanır).
- * - Ağ, HTTP ve Jotform API hataları `JotformError` olarak fırlatılır.
- */
 export async function fetchFormSubmissions(
   formId: string,
   apiKey: string,
@@ -111,7 +79,6 @@ export async function fetchFormSubmissions(
     ? buildCacheKey(formId, options.limit, options.offset)
     : null;
 
-  // Önbellekte taze veri varsa ağa gitmeden döner.
   if (cacheKey && !options.force) {
     const cached = readCache(cacheKey);
     if (cached) return cached;
@@ -125,15 +92,7 @@ export async function fetchFormSubmissions(
   return normalized;
 }
 
-// ---------------------------------------------------------------------------
-// Public API — fetchMultipleForms
-// ---------------------------------------------------------------------------
 
-/**
- * Birden fazla form için paralel istek atar.
- * Herhangi bir form başarısız olsa bile diğerleri döner
- * (`Promise.allSettled` semantiği).
- */
 export async function fetchMultipleForms(
   forms: FormConfig[],
   options: FetchOptions = {},
@@ -155,24 +114,12 @@ export async function fetchMultipleForms(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Public re-export — cache temizleme
-// ---------------------------------------------------------------------------
 
-/**
- * Jotform'a ait tüm önbellek girdilerini temizler.
- * Doğrudan `clearCache` içe aktarmak yerine bu sarmalayıcıyı kullanın;
- * böylece önbellek modülü değişseydi yalnızca bu dosyayı güncellemeniz yeterlidir.
- */
 export function clearJotformCache(): void {
   clearCache();
 }
 
-// ---------------------------------------------------------------------------
-// Normalleştirme — dahili yardımcılar
-// ---------------------------------------------------------------------------
 
-/** Tek bir ham Jotform gönderisini kanonik yapıya çevirir. */
 export function normalizeSubmission(raw: RawSubmission): NormalizedSubmission {
   const fields: Record<string, unknown> = {};
 
@@ -192,25 +139,14 @@ export function normalizeSubmission(raw: RawSubmission): NormalizedSubmission {
   };
 }
 
-/**
- * Jotform cevap nesnesinin ham değerini çözer.
- * `prettyFormat` varsa tercih edilir (kullanıcı dostu metin).
- */
+
 function resolveAnswerValue(answer: RawAnswer): unknown {
   const pretty = answer?.prettyFormat;
   if (pretty !== undefined && pretty !== "") return pretty;
   return answer?.answer;
 }
 
-// ---------------------------------------------------------------------------
-// Ağ katmanı — dahili yardımcılar
-// ---------------------------------------------------------------------------
 
-/**
- * Ham Jotform API isteğini atar ve `RawSubmission[]` döndürür.
- * Ağ, HTTP ve Jotform uygulama hataları burada yakalanır ve
- * `JotformError` olarak yeniden fırlatılır.
- */
 async function doFetch(
   formId: string,
   apiKey: string,
@@ -225,7 +161,6 @@ async function doFetch(
   return Array.isArray(payload.content) ? payload.content : [];
 }
 
-/** Ağ isteğini atar; ağ seviyesi hatalar `JotformError`'a dönüştürülür. */
 async function fetchWithNetworkGuard(
   url: string,
   formId: string,
@@ -242,7 +177,6 @@ async function fetchWithNetworkGuard(
     }
     return response;
   } catch (err) {
-    // JotformError zaten fırlatılmışsa tekrar sarmaya gerek yok.
     if (err instanceof JotformError) throw err;
     const reason = err instanceof Error ? err.message : String(err);
     throw new JotformError(
@@ -253,7 +187,6 @@ async function fetchWithNetworkGuard(
   }
 }
 
-/** Response body'sini JSON olarak ayrıştırır. */
 async function parseJsonPayload(
   response: Response,
   formId: string,
@@ -269,7 +202,6 @@ async function parseJsonPayload(
   }
 }
 
-/** Jotform uygulama katmanı başarı kodunu doğrular. */
 function assertApiSuccess(
   payload: JotformEnvelope<unknown>,
   formId: string,
@@ -283,7 +215,6 @@ function assertApiSuccess(
   }
 }
 
-/** Sorgu parametrelerini içeren tam API URL'ini oluşturur. */
 function buildSubmissionsUrl(
   formId: string,
   apiKey: string,
