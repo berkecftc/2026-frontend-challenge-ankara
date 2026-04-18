@@ -1,12 +1,20 @@
 import type { Filters, Record } from "../types";
 import { normalizeText } from "./string";
+import { normalizeTurkish } from "./fuzzy";
 
 export { normalizeText };
 
-/** Kaydın serbest metin sorgusunu (kişi/konum/içerik) karşılayıp karşılamadığını döndürür. */
+/**
+ * Kaydın serbest metin sorgusunu (kişi/konum/içerik) karşılayıp karşılamadığını döndürür.
+ *
+ * Türkçe karakter normalizasyonu ile birlikte çalışır:
+ * "çiçek" araması "cicek" ile de eşleşir.
+ */
 export function matchesQuery(record: Record, query: string): boolean {
-  const q = query.toLowerCase().trim();
+  const q = query.trim();
   if (!q) return true;
+
+  const normalizedQ = normalizeTurkish(q);
 
   const haystack = [
     record.person,
@@ -15,10 +23,14 @@ export function matchesQuery(record: Record, query: string): boolean {
     record.content,
   ]
     .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
+    .join(" ");
 
-  return haystack.includes(q);
+  if (haystack.toLowerCase().includes(q.toLowerCase())) return true;
+
+  const normalizedHaystack = normalizeTurkish(haystack);
+  if (normalizedHaystack.includes(normalizedQ)) return true;
+
+  return false;
 }
 
 /** Kaydın tüm aktif filtreleri karşılayıp karşılamadığını döndürür. */

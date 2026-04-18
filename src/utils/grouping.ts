@@ -1,17 +1,27 @@
 import type { Record } from "../types";
 import { normalizeText } from "./filters";
+import { normalizeTurkish, levenshtein } from "./fuzzy";
 
-/** Group records by a canonical person key (lowercased, trimmed). */
+/**
+ * Kayıtları kişi bazında gruplar (büyük/küçük harf + Türkçe karakter duyarsız).
+ *
+ * Fuzzy eşleştirme ile benzer isimleri (ör. "Ayşe" ve "ayse") aynı gruba toplar.
+ * Eşik: 0.25 (kısa isimlerde 1 harf farkına kadar tolerans).
+ */
 export function groupRecordsByPerson(records: Record[]): Map<string, Record[]> {
   const map = new Map<string, Record[]>();
+  const canonicalKeys = new Map<string, string>();
+
   for (const r of records) {
     for (const name of [r.person, r.relatedPerson]) {
       if (!name) continue;
       const key = normalizeText(name);
       if (!key) continue;
-      const bucket = map.get(key) ?? [];
+
+      const resolvedKey = resolveCanonical(key, canonicalKeys, 0.25);
+      const bucket = map.get(resolvedKey) ?? [];
       bucket.push(r);
-      map.set(key, bucket);
+      map.set(resolvedKey, bucket);
     }
   }
   return map;
@@ -41,4 +51,34 @@ export function uniquePreserveCase(
     if (!seen.has(k)) seen.set(k, v);
   }
   return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
+}
+
+
+/**
+ * Verilen key'in mevcut kanonik anahtarlar arasında fuzzy eşleşeni var mı kontrol eder.
+ * Varsa mevcut kanonik key'i döndürür, yoksa yeni kanonik key olarak kaydeder.
+ */
+function resolveCanonical(
+  key: string,
+  canonicalKeys: Map<string, string>,
+  threshold: number,
+): string {
+  if (canonicalKeys.has(key)) return canonicalKeys.get(key)!;
+
+  const normKey = normalizeTurkish(key);
+
+  for (const [existingKey, canonicalKey] of canonicalKeys) {
+    const normExisting = normalizeTurkish(existingKey);
+    const maxLen = Math.max(normKey.length, normExisting.length);
+    if (maxLen === 0) continue;
+
+    const dist = levenshtein(normKey, normExisting);
+    if (dist / maxLen <= threshold) {
+      canonicalKeys.set(key, canonicalKey);
+      return canonicalKey;
+    }
+  }
+
+  canonicalKeys.set(key, key);
+  return key;
 }
