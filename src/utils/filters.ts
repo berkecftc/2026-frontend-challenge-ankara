@@ -1,6 +1,6 @@
 import type { Filters, Record } from "../types";
 import { normalizeText } from "./string";
-import { normalizeTurkish } from "./fuzzy";
+import { normalizeTurkish, fuzzyMatch } from "./fuzzy";
 
 export { normalizeText };
 
@@ -40,15 +40,14 @@ export function matchesFilters(record: Record, filters: Filters): boolean {
   }
 
   if (filters.person) {
-    const target = normalizeText(filters.person);
     const personMatches =
-      normalizeText(record.person) === target ||
-      normalizeText(record.relatedPerson) === target;
+      fuzzyMatch(record.person, filters.person, 0.4) ||
+      fuzzyMatch(record.relatedPerson, filters.person, 0.4);
     if (!personMatches) return false;
   }
 
   if (filters.location) {
-    if (normalizeText(record.location) !== normalizeText(filters.location)) {
+    if (!fuzzyMatch(record.location, filters.location, 0.3)) {
       return false;
     }
   }

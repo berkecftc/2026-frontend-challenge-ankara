@@ -13,7 +13,7 @@ import { Timeline } from "../components/Timeline";
 import { useInvestigationData } from "../hooks/useInvestigationData";
 import type { Filters } from "../types";
 import { EMPTY_FILTERS, filterRecords } from "../utils/filters";
-import { uniquePreserveCase } from "../utils/grouping";
+import { uniqueFuzzy } from "../utils/grouping";
 import { getRelatedRecords } from "../utils/linking";
 import { computeSuspicionSummary } from "../utils/scoring";
 
@@ -32,13 +32,14 @@ export function DashboardPage() {
 
   const people = useMemo(
     () =>
-      uniquePreserveCase(
+      uniqueFuzzy(
         records.flatMap((r) => [r.person, r.relatedPerson]),
+        0.4 // Inclusive for names with initials
       ),
     [records],
   );
   const locations = useMemo(
-    () => uniquePreserveCase(records.map((r) => r.location)),
+    () => uniqueFuzzy(records.map((r) => r.location)),
     [records],
   );
 

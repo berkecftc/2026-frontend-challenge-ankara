@@ -1,6 +1,6 @@
 import type { Record } from "../types";
 import { normalizeText } from "./filters";
-import { normalizeTurkish, levenshtein } from "./fuzzy";
+import { normalizeTurkish, levenshtein, buildFuzzyGroups } from "./fuzzy";
 
 /**
  * Kayıtları kişi bazında gruplar (büyük/küçük harf + Türkçe karakter duyarsız).
@@ -18,7 +18,7 @@ export function groupRecordsByPerson(records: Record[]): Map<string, Record[]> {
       const key = normalizeText(name);
       if (!key) continue;
 
-      const resolvedKey = resolveCanonical(key, canonicalKeys, 0.25);
+      const resolvedKey = resolveCanonical(key, canonicalKeys, 0.4);
       const bucket = map.get(resolvedKey) ?? [];
       bucket.push(r);
       map.set(resolvedKey, bucket);
@@ -29,13 +29,17 @@ export function groupRecordsByPerson(records: Record[]): Map<string, Record[]> {
 
 export function groupRecordsByLocation(records: Record[]): Map<string, Record[]> {
   const map = new Map<string, Record[]>();
+  const canonicalKeys = new Map<string, string>();
+
   for (const r of records) {
     if (!r.location) continue;
     const key = normalizeText(r.location);
     if (!key) continue;
-    const bucket = map.get(key) ?? [];
+
+    const resolvedKey = resolveCanonical(key, canonicalKeys, 0.3);
+    const bucket = map.get(resolvedKey) ?? [];
     bucket.push(r);
-    map.set(key, bucket);
+    map.set(resolvedKey, bucket);
   }
   return map;
 }
@@ -51,6 +55,18 @@ export function uniquePreserveCase(
     if (!seen.has(k)) seen.set(k, v);
   }
   return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Benzer isimleri (fuzzy match) tek bir kanonik isimde birleştirir.
+ */
+export function uniqueFuzzy(
+  values: Array<string | null | undefined>,
+  threshold = 0.4,
+): string[] {
+  const nonNull = values.filter((v): v is string => !!v);
+  const groups = buildFuzzyGroups(nonNull, threshold);
+  return Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
 }
 
 
