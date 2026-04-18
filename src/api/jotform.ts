@@ -1,16 +1,3 @@
-/**
- * Jotform API data-fetching layer.
- *
- * Responsibilities:
- *  - Talk to the Jotform REST API over native fetch.
- *  - Normalize raw submissions into a UI-friendly shape.
- *  - Aggregate results across multiple forms without failing the whole batch
- *    when a single form errors out.
- *
- * This module is intentionally UI-agnostic: it returns plain data and throws
- * typed errors. Components/hooks should wrap it, not the other way around.
- */
-
 const JOTFORM_BASE_URL = "https://api.jotform.com";
 
 // ---------------------------------------------------------------------------
@@ -23,15 +10,14 @@ export interface FormConfig {
 }
 
 export interface FetchOptions {
-  /** Max submissions to return (Jotform default: 20, max: 1000). */
   limit?: number;
-  /** Starting offset for pagination. */
   offset?: number;
-  /** AbortSignal to cancel in-flight requests. */
   signal?: AbortSignal;
+  cache?: boolean;
+  cacheTtlMs?: number;
+  force?: boolean;
 }
 
-/** Shape of a raw Jotform API envelope. */
 interface JotformEnvelope<T> {
   responseCode: number;
   message: string;
@@ -44,7 +30,6 @@ interface JotformEnvelope<T> {
   };
 }
 
-/** A raw submission as returned by Jotform. */
 interface RawSubmission {
   id: string;
   form_id: string;
@@ -63,7 +48,6 @@ interface RawSubmission {
   >;
 }
 
-/** Normalized submission consumed by the UI. */
 export interface NormalizedSubmission {
   id: string;
   formId: string;
@@ -75,21 +59,17 @@ export interface NormalizedSubmission {
 
 export type FormResult =
   | {
-      formId: string;
-      status: "success";
-      data: NormalizedSubmission[];
-      error: null;
-    }
+    formId: string;
+    status: "success";
+    data: NormalizedSubmission[];
+    error: null;
+  }
   | {
-      formId: string;
-      status: "failure";
-      data: null;
-      error: string;
-    };
-
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
+    formId: string;
+    status: "failure";
+    data: null;
+    error: string;
+  };
 
 export class JotformError extends Error {
   constructor(
@@ -102,15 +82,6 @@ export class JotformError extends Error {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Core fetch
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch submissions for a single form.
- *
- * Throws JotformError on HTTP failures or non-200 Jotform response codes.
- */
 export async function fetchFormSubmissions(
   formId: string,
   apiKey: string,
@@ -118,6 +89,14 @@ export async function fetchFormSubmissions(
 ): Promise<NormalizedSubmission[]> {
   if (!formId) throw new JotformError("formId is required");
   if (!apiKey) throw new JotformError("apiKey is required", undefined, formId);
+
+  const ttl = options.cacheTtlMs ?? 10 * 60 * 1000;
+  const ckey = options.cache ? cacheKey(formId, options) : null;
+
+  if (ckey && !options.force) {
+    const cached = readCache(ckey);
+    if (cached) return cached;
+  }
 
   const url = buildSubmissionsUrl(formId, apiKey, options);
 
@@ -162,20 +141,14 @@ export async function fetchFormSubmissions(
   }
 
   const submissions = Array.isArray(payload.content) ? payload.content : [];
-  return submissions.map(normalizeSubmission);
+  const normalized = submissions.map(normalizeSubmission);
+
+  if (ckey) writeCache(ckey, normalized, ttl);
+
+  return normalized;
 }
 
-// ---------------------------------------------------------------------------
-// Multi-form aggregation
-// ---------------------------------------------------------------------------
 
-/**
- * Fetch submissions from many forms in parallel.
- *
- * Uses Promise.allSettled so one failing form does not abort the batch.
- * Returns a per-form result object — callers decide how to render successes
- * vs failures.
- */
 export async function fetchMultipleForms(
   forms: FormConfig[],
   options: FetchOptions = {},
@@ -198,24 +171,11 @@ export async function fetchMultipleForms(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Normalization
-// ---------------------------------------------------------------------------
-
-/**
- * Convert a raw Jotform submission into a flat, UI-friendly object.
- *
- * Each answer is keyed by its field name (falling back to the question label,
- * then the numeric qid) so UI code can reference fields semantically rather
- * than by Jotform's internal ids.
- */
 export function normalizeSubmission(raw: RawSubmission): NormalizedSubmission {
   const fields: Record<string, unknown> = {};
 
   for (const [qid, answer] of Object.entries(raw.answers ?? {})) {
     const key = answer?.name || answer?.text || qid;
-    // Prefer the human-readable prettyFormat when Jotform provides it
-    // (dates, times, addresses, etc.), otherwise fall back to the raw answer.
     const value =
       answer?.prettyFormat !== undefined && answer?.prettyFormat !== ""
         ? answer.prettyFormat
@@ -233,10 +193,6 @@ export function normalizeSubmission(raw: RawSubmission): NormalizedSubmission {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function buildSubmissionsUrl(
   formId: string,
   apiKey: string,
@@ -250,4 +206,56 @@ function buildSubmissionsUrl(
   if (limit !== undefined) url.searchParams.set("limit", String(limit));
   if (offset !== undefined) url.searchParams.set("offset", String(offset));
   return url.toString();
+}
+
+
+
+const CACHE_PREFIX = "jotform:cache:";
+
+interface CacheEntry {
+  expiresAt: number;
+  data: NormalizedSubmission[];
+}
+
+function cacheKey(formId: string, options: FetchOptions): string {
+  return `${CACHE_PREFIX}${formId}:${options.limit ?? ""}:${options.offset ?? ""}`;
+}
+
+function readCache(key: string): NormalizedSubmission[] | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const entry = JSON.parse(raw) as CacheEntry;
+    if (!entry?.expiresAt || entry.expiresAt < Date.now()) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    return entry.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(
+  key: string,
+  data: NormalizedSubmission[],
+  ttlMs: number,
+): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const entry: CacheEntry = { expiresAt: Date.now() + ttlMs, data };
+    localStorage.setItem(key, JSON.stringify(entry));
+  } catch {
+  }
+}
+
+export function clearJotformCache(): void {
+  if (typeof localStorage === "undefined") return;
+  const toRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith(CACHE_PREFIX)) toRemove.push(key);
+  }
+  toRemove.forEach((k) => localStorage.removeItem(k));
 }
