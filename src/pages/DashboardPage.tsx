@@ -121,23 +121,25 @@ export function DashboardPage() {
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <div>
-          <h1>Missing Podo — Investigation Dashboard</h1>
-          <p className="muted">
-            {records.length} records · {sourceErrors.length} source(s) failed
-            {fromCache && " · 📦 cached"}
-          </p>
+        <header className="app-header">
+        <div className="app-header__brand">
+          <div className="app-header__logo">🐾</div>
+          <div>
+            <h1>Missing Podo <span className="muted" style={{ fontWeight: 400 }}>Dashboard</span></h1>
+            <p className="muted" style={{ fontSize: '11px', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+              {records.length} Intelligence Units · {sourceErrors.length} Offline
+              {fromCache && " · Cached"}
+            </p>
+          </div>
         </div>
         <div className="app-header__actions">
           <button
             type="button"
-            className="btn"
+            className="btn btn--primary"
             onClick={forceReload}
             disabled={status === "loading"}
-            title="Clear cache and fetch fresh data from Jotform (uses API quota)"
           >
-            {status === "loading" ? "Refreshing…" : "🔄 Force Refresh"}
+            {status === "loading" ? "Syncing..." : "🔄 Refresh"}
           </button>
         </div>
       </header>

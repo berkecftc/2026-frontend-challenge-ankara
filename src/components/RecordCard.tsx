@@ -14,6 +14,7 @@ export function RecordCard({ record, isSelected, onSelect }: Props) {
     <li
       className={`record-card ${isSelected ? "is-selected" : ""}`}
       data-record-id={record.id}
+      style={{ "--source-color": `var(--src-${record.sourceType})` } as React.CSSProperties}
       onClick={() => onSelect(record.id)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
